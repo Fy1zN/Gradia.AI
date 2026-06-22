@@ -1,0 +1,17 @@
+# Backend
+gradia-backend/.env
+gradia-backend/firebase-service-account.json
+gradia-backend/venv/
+gradia-backend/__pycache__/
+gradia-backend/*.pyc
+gradia-backend/uploads/
+gradia-backend/weights/
+
+# Frontend
+gradia-frontend/node_modules/
+gradia-frontend/.env
+gradia-frontend/dist/
+
+# General
+.DS_Store
+*.log
