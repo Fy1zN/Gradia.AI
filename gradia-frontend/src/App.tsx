@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
+
 import { useAuth, useCases, useUpload, useReport } from "./api/hooks";
 import type { CaseRecord } from "./api/gradiaApi";
 
@@ -116,15 +116,7 @@ function Select({ label, options, ...props }: { label: string; options: string[]
   );
 }
 
-function FeatureCard({ title, desc }: { title: string; desc: string }) {
-  const [hov, setHov] = useState(false);
-  return (
-    <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)} style={{ border: `1px solid ${hov ? C.amber : C.border}`, borderRadius: 12, background: "rgba(17,17,18,0.85)", backdropFilter: "blur(8px)", padding: "22px 18px", textAlign: "left", transition: "all 0.2s", boxShadow: hov ? `0 0 20px rgba(245,158,11,0.08)` : "none" }}>
-      <p style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 600, fontSize: 14, color: C.text, marginBottom: 8 }}>{title}</p>
-      <p style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 300, fontSize: 12, color: C.textMuted, lineHeight: 1.6 }}>{desc}</p>
-    </div>
-  );
-}
+
 
 function Btn({ children, onClick, disabled, variant = "primary", full }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean; variant?: "primary" | "ghost"; full?: boolean; }) {
   const [hov, setHov] = useState(false);
@@ -391,56 +383,335 @@ export default function App() {
     </nav>
   );
 
-  //  LANDING 
+  // ── LANDING ────────────────────────────────────────────────────────────
   if (page === "landing") return (
-    <div style={{ minHeight: "100vh", background: C.bg, color: C.text }}>
-      <Nav />
-      <div style={{ position: "relative", overflow: "hidden", minHeight: "calc(100vh - 58px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 24px", textAlign: "center" }}>
+    <div style={{ background: C.bg, color: C.text }}>
+      {/* NAV */}
+      <nav style={{ position: "sticky", top: 0, zIndex: 50, background: `${C.bg}ee`, backdropFilter: "blur(14px)", padding: "0 48px", height: 62, display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${C.border}` }}>
+        <div onClick={() => setPage("landing")} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+          <span style={{ width: 28, height: 28, borderRadius: 8, background: C.amber, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ fontFamily: "'DM Serif Display', serif", fontStyle: "italic", fontSize: 14, fontWeight: 700, color: "#0a0a0b" }}>G</span>
+          </span>
+          <span style={{ fontFamily: "'DM Serif Display', serif", fontStyle: "italic", fontSize: 18, color: C.text, letterSpacing: "0.02em" }}>
+  Gradia<span style={{ color: C.amber, fontStyle: "normal", fontFamily: "'Space Mono', monospace", fontSize: 13 }}>.AI</span>
+</span>
+        </div>
+        <div style={{ display: "flex", gap: 32, alignItems: "center" }}>
+  <span onClick={() => setPage("terminal")} style={{ fontFamily: "'Outfit', sans-serif", fontSize: 13, color: C.textDim, cursor: "pointer", letterSpacing: "0.01em" }}>Cases</span>
+  <span onClick={() => user ? setPage("ingestion") : setPage("auth")} style={{ fontFamily: "'Outfit', sans-serif", fontSize: 13, color: C.textDim, cursor: "pointer", letterSpacing: "0.01em" }}>New Scan</span>
+</div>
+       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+  {user ? (
+    <>
+      <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 10, color: C.textMuted }}>{user.email}</span>
+      <button onClick={logout} style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 24, padding: "9px 20px", fontFamily: "'Outfit', sans-serif", fontWeight: 600, fontSize: 13, color: C.textDim, cursor: "pointer" }}>Logout</button>
+    </>
+  ) : (
+    <button onClick={() => setPage("auth")} style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 24, padding: "9px 20px", fontFamily: "'Outfit', sans-serif", fontWeight: 600, fontSize: 13, color: C.textDim, cursor: "pointer" }}>Sign In</button>
+  )}
+  <button onClick={() => user ? setPage("ingestion") : setPage("auth")} style={{ display: "flex", alignItems: "center", gap: 8, background: C.amber, border: "none", borderRadius: 24, padding: "10px 22px", fontFamily: "'Outfit', sans-serif", fontWeight: 700, fontSize: 13, color: "#0a0a0b", cursor: "pointer" }}>
+    Launch ↗
+  </button>
+</div>
+      </nav>
+
+      {/* HERO SECTION */}
+      <section style={{ position: "relative", minHeight: "100vh", display: "flex", alignItems: "center", overflow: "hidden", padding: "0 48px" }}>
         <ParticleField />
-        <div style={{ position: "absolute", top: "45%", left: "50%", transform: "translate(-50%, -50%)", width: 800, height: 500, borderRadius: "50%", background: "radial-gradient(ellipse, rgba(245,158,11,0.07) 0%, transparent 70%)", pointerEvents: "none", zIndex: 0 }} />
-        <div style={{ position: "relative", zIndex: 1, maxWidth: 740 }}>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, border: `1px solid ${C.amberDim}`, borderRadius: 20, padding: "5px 18px", marginBottom: 40, background: "rgba(146,64,14,0.12)" }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.amber, boxShadow: `0 0 5px ${C.amber}`, display: "inline-block" }} />
-            <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 9, color: C.amber, letterSpacing: "0.18em", textTransform: "uppercase" }}>Clinical AI Research Platform — v1.0</span>
+        <div style={{ position: "absolute", top: "40%", left: "30%", transform: "translate(-50%, -50%)", width: 700, height: 700, borderRadius: "50%", background: "radial-gradient(ellipse, rgba(245,158,11,0.06) 0%, transparent 70%)", pointerEvents: "none", zIndex: 0 }} />
+
+        {/* Left — Hero text */}
+        <div style={{ position: "relative", zIndex: 1, flex: 1, maxWidth: 620, paddingRight: 40 }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginBottom: 32 }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.amber, display: "inline-block" }} />
+            <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 9, color: C.textMuted, letterSpacing: "0.2em", textTransform: "uppercase" }}>AI-Powered Dermoscopy Analysis</span>
           </div>
-          <h1 style={{ marginBottom: 24, lineHeight: 1.06 }}>
-            <span style={{ display: "block", fontFamily: "'Outfit', sans-serif", fontWeight: 300, fontSize: "clamp(22px, 3vw, 38px)", color: C.textDim, letterSpacing: "-0.01em", marginBottom: 6 }}>AI-Powered Dermoscopy Analysis</span>
-            <span style={{ display: "block", fontFamily: "'DM Serif Display', serif", fontWeight: 400, fontSize: "clamp(30px, 5vw, 60px)", color: C.amber, letterSpacing: "-0.02em", fontStyle: "italic" }}>Results in seconds.</span>
+          <h1 style={{ marginBottom: 28, lineHeight: 1.05 }}>
+            <span style={{ display: "block", fontFamily: "'Outfit', sans-serif", fontWeight: 800, fontSize: "clamp(36px, 5vw, 64px)", color: C.text, letterSpacing: "-0.02em" }}>Explainable Skin</span>
+            <span style={{ display: "block", fontFamily: "'Outfit', sans-serif", fontWeight: 800, fontSize: "clamp(36px, 5vw, 64px)", color: C.text, letterSpacing: "-0.02em" }}>Lesion Intelligence</span>
+            <span style={{ display: "block", fontFamily: "'Outfit', sans-serif", fontWeight: 800, fontSize: "clamp(36px, 5vw, 64px)", letterSpacing: "-0.02em" }}>
+              for <span style={{ color: C.amber, fontFamily: "'DM Serif Display', serif", fontStyle: "italic", fontWeight: 400 }}>Research</span>
+              <span style={{ color: C.text }}> & </span>
+              <span style={{ color: C.amber, fontFamily: "'DM Serif Display', serif", fontStyle: "italic", fontWeight: 400 }}>Clinical</span>
+            </span>
+            <span style={{ display: "block", fontFamily: "'Outfit', sans-serif", fontWeight: 800, fontSize: "clamp(36px, 5vw, 64px)", color: C.text, letterSpacing: "-0.02em" }}>Workflow Prototyping.</span>
           </h1>
-          <p style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 300, fontSize: 15, color: C.textDim, maxWidth: 500, margin: "0 auto 44px", lineHeight: 1.8 }}>
-            Upload a skin lesion image and get instant AI classification, visual explanation maps, and a formal diagnostic draft — ready for clinical review.
+          <p style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 300, fontSize: 15, color: C.textDim, maxWidth: 480, lineHeight: 1.8, marginBottom: 40 }}>
+            GRADIA.AI analyzes dermoscopy images using a fine-tuned deep learning model, visualizes model reasoning with Grad-CAM, and generates structured pathology drafts for research and experimental use only.
           </p>
-          <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap", marginBottom: 48 }}>
-            <Btn onClick={() => user ? setPage("ingestion") : setPage("auth")}>Upload Skin Scan</Btn>
-            <Btn variant="ghost" onClick={() => setPage("terminal")}>View Cases</Btn>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 56 }}>
+            <button onClick={() => user ? setPage("ingestion") : setPage("auth")} style={{ display: "flex", alignItems: "center", gap: 8, background: C.amber, border: "none", borderRadius: 28, padding: "13px 28px", fontFamily: "'Outfit', sans-serif", fontWeight: 700, fontSize: 14, color: "#0a0a0b", cursor: "pointer" }}>
+              Launch GRADIA.AI <span>→</span>
+            </button>
+            <button onClick={() => setPage("terminal")} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", border: `1px solid ${C.border}`, borderRadius: 28, padding: "13px 28px", fontFamily: "'Outfit', sans-serif", fontWeight: 500, fontSize: 14, color: C.textDim, cursor: "pointer" }}>
+              View Cases
+            </button>
           </div>
-          <div style={{ width: "100vw", marginLeft: "calc(-50vw + 50%)", overflow: "hidden", marginBottom: 48, padding: "11px 0" }}>
-            <div style={{ display: "flex", gap: 56, animation: "marquee 28s linear infinite", width: "max-content" }}>
-              {[...Array(2)].map((_, i) => (
-                <div key={i} style={{ display: "flex", gap: 56, alignItems: "center" }}>
-                  {["Melanoma (MEL)","Basal Cell Carcinoma (BCC)","Melanocytic Nevus (NV)","Actinic Keratosis (AKIEC)","Benign Keratosis (BKL)","Dermatofibroma (DF)","Vascular Lesion (VASC)"].map(item => (
-                    <span key={item} style={{ display: "flex", alignItems: "center", gap: 10, whiteSpace: "nowrap" }}>
-                      <span style={{ width: 3, height: 3, borderRadius: "50%", background: C.amber, display: "inline-block", opacity: 0.5 }} />
-                      <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 9, color: C.textMuted, letterSpacing: "0.14em", textTransform: "uppercase" }}>{item}</span>
-                    </span>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, maxWidth: 680, margin: "0 auto" }}>
-            <FeatureCard title="Instant Results" desc="Upload and receive classification in under 3 seconds" />
-            <FeatureCard title="Visual Explanation" desc="See exactly which pixels drove the AI decision via Grad-CAM" />
-            <FeatureCard title="Clinical Draft" desc="Auto-generated pathology report ready for physician review" />
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            {["v1.0", "RESEARCH BUILD", "HAM10000", "7 CLASSES", "NOT FOR CLINICAL USE"].map((item, i) => (
+              <React.Fragment key={item}>
+                {i > 0 && <span style={{ color: C.border, fontSize: 10 }}>•</span>}
+                <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 9, color: C.textMuted, letterSpacing: "0.1em", textTransform: "uppercase" }}>{item}</span>
+              </React.Fragment>
+            ))}
           </div>
         </div>
+
+        {/* Right — Mock terminal card */}
+        <div style={{ position: "relative", zIndex: 1, width: 480, flexShrink: 0 }}>
+          <div style={{ border: `1px solid ${C.border}`, borderRadius: 16, background: C.surface, overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.4)" }}>
+            <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", gap: 6 }}>
+                {["#3a3a3a","#3a3a3a","#3a3a3a"].map((c, i) => <span key={i} style={{ width: 10, height: 10, borderRadius: "50%", background: c, display: "inline-block" }} />)}
+              </div>
+              <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 9, color: C.textMuted, letterSpacing: "0.1em" }}>GRADIA · CASE #G-08427</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.safe, display: "inline-block" }} />
+                <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 9, color: C.safe }}>LIVE</span>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0 }}>
+              <div style={{ position: "relative", height: 200, background: "#1a1008", display: "flex", alignItems: "center", justifyContent: "center", borderRight: `1px solid ${C.border}` }}>
+                <div style={{ position: "absolute", top: 8, left: 8, background: "rgba(0,0,0,0.6)", borderRadius: 4, padding: "3px 8px" }}>
+                  <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 8, color: C.textMuted }}>DERMOSCOPY · 600×450</span>
+                </div>
+                <div style={{ width: 110, height: 110, borderRadius: "50%", background: "radial-gradient(circle, #2a1a0a 0%, #0f0905 70%)", boxShadow: "0 0 30px rgba(100,50,10,0.4)" }} />
+              </div>
+              <div style={{ padding: 16 }}>
+                <p style={{ fontFamily: "'Space Mono', monospace", fontSize: 8, color: C.textMuted, letterSpacing: "0.12em", marginBottom: 6 }}>PREDICTED CLASS</p>
+                <p style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 700, fontSize: 16, color: C.text, marginBottom: 12 }}>Melanocytic Nevus</p>
+                <p style={{ fontFamily: "'Space Mono', monospace", fontSize: 8, color: C.textMuted, marginBottom: 4 }}>Confidence</p>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                  <div style={{ flex: 1, height: 3, background: C.border, borderRadius: 4 }}>
+                    <div style={{ width: "92%", height: "100%", background: C.amber, borderRadius: 4 }} />
+                  </div>
+                  <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 9, color: C.amber, fontWeight: 700 }}>92.4%</span>
+                </div>
+                <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 8, color: C.textMuted }}>GRAD-CAM</span>
+                    <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 8, color: C.safe }}>READY</span>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 3 }}>
+                    {[0.95,0.7,0.5,0.6,0.9,0.4,0.3,0.5,0.7].map((v, i) => (
+                      <div key={i} style={{ height: 28, borderRadius: 4, background: `rgba(245,158,11,${v * 0.9})` }} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div style={{ padding: "12px 16px", borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ width: 20, height: 20, borderRadius: "50%", background: C.amberGlow, border: `1px solid ${C.amberDim}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>✦</span>
+              <div>
+                <p style={{ fontFamily: "'Outfit', sans-serif", fontSize: 11, color: C.text, fontWeight: 600 }}>AI pathology draft generated</p>
+                <p style={{ fontFamily: "'Space Mono', monospace", fontSize: 8, color: C.textMuted }}>Gemini · 412 tokens · 1.2s</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* MARQUEE */}
+      <div style={{ borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, overflow: "hidden", padding: "12px 0" }}>
+        <div style={{ display: "flex", gap: 56, animation: "marquee 28s linear infinite", width: "max-content" }}>
+          {[...Array(2)].map((_, i) => (
+            <div key={i} style={{ display: "flex", gap: 56, alignItems: "center" }}>
+              {["Melanoma (MEL)","Basal Cell Carcinoma (BCC)","Melanocytic Nevus (NV)","Actinic Keratosis (AKIEC)","Benign Keratosis (BKL)","Dermatofibroma (DF)","Vascular Lesion (VASC)"].map(item => (
+                <span key={item} style={{ display: "flex", alignItems: "center", gap: 10, whiteSpace: "nowrap" }}>
+                  <span style={{ width: 3, height: 3, borderRadius: "50%", background: C.amber, display: "inline-block", opacity: 0.5 }} />
+                  <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 9, color: C.textMuted, letterSpacing: "0.14em", textTransform: "uppercase" }}>{item}</span>
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
+
+      {/* PLATFORM SECTION */}
+      <section style={{ padding: "100px 48px" }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 24 }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.amber, display: "inline-block" }} />
+            <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 9, color: C.textMuted, letterSpacing: "0.2em", textTransform: "uppercase" }}>Platform · 01</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 56 }}>
+            <h2 style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 800, fontSize: "clamp(28px, 4vw, 48px)", color: C.text, letterSpacing: "-0.02em", lineHeight: 1.1 }}>
+              What <span style={{ color: C.amber, fontFamily: "'DM Serif Display', serif", fontStyle: "italic", fontWeight: 400 }}>GRADIA.AI</span> does
+            </h2>
+            <span style={{ fontFamily: "'Outfit', sans-serif", fontSize: 13, color: C.amber, cursor: "pointer" }}>Explore the workflow →</span>
+          </div>
+          <p style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 300, fontSize: 15, color: C.textDim, maxWidth: 560, lineHeight: 1.8, marginBottom: 56 }}>
+            A focused toolkit for dermoscopy analysis — combining a fine-tuned vision model, visual reasoning, and language drafts into a single research workflow.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+            {[
+              { icon: "⬡", num: "01", title: "Lesion Classification", desc: "Fine-tuned ResNet-50 trained on HAM10000 for 7-category skin lesion classification with calibrated confidence." },
+              { icon: "◎", num: "02", title: "Explainable Predictions", desc: "Grad-CAM overlays highlight the exact image regions influencing the model's decision — no black boxes." },
+              { icon: "◈", num: "03", title: "AI Clinical Drafting", desc: "Gemini-generated pathology report drafts from image context and patient metadata, ready to review." },
+              { icon: "▤", num: "04", title: "Case-Based Workflow", desc: "Store, review, search and export lesion cases in a structured, queryable research workflow." },
+            ].map(f => (
+              <div key={f.title} style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: "24px 20px", background: C.surface, display: "flex", flexDirection: "column", gap: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 10, background: C.amberGlow, border: `1px solid ${C.amberDim}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <span style={{ fontSize: 16, color: C.amber }}>{f.icon}</span>
+                  </div>
+                  <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 9, color: C.textMuted }}>{f.num}</span>
+                </div>
+                <div>
+                  <p style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 700, fontSize: 14, color: C.text, marginBottom: 8 }}>{f.title}</p>
+                  <p style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 300, fontSize: 12, color: C.textMuted, lineHeight: 1.7 }}>{f.desc}</p>
+                </div>
+                <span style={{ fontFamily: "'Outfit', sans-serif", fontSize: 12, color: C.amber, cursor: "pointer", marginTop: "auto" }}>Learn more →</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* WORKFLOW SECTION */}
+      <section style={{ padding: "100px 48px", borderTop: `1px solid ${C.border}` }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 24 }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.amber, display: "inline-block" }} />
+            <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 9, color: C.textMuted, letterSpacing: "0.2em", textTransform: "uppercase" }}>Workflow · 02</span>
+          </div>
+          <h2 style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 800, fontSize: "clamp(28px, 4vw, 48px)", color: C.text, letterSpacing: "-0.02em", lineHeight: 1.1, marginBottom: 16, textAlign: "center" }}>
+            How a case moves through{" "}
+            <span style={{ color: C.amber, fontFamily: "'DM Serif Display', serif", fontStyle: "italic", fontWeight: 400 }}>the pipeline</span>
+          </h2>
+          <p style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 300, fontSize: 15, color: C.textDim, textAlign: "center", marginBottom: 64, lineHeight: 1.8 }}>
+            From image upload to exportable clinical draft — four crisp, predictable steps.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 20 }}>
+            {[
+              { num: "01", icon: "⬡", title: "Upload Dermoscopy Image", desc: "Drag-and-drop a dermoscopy image with optional patient metadata for context." },
+              { num: "02", icon: "◎", title: "Run AI Lesion Analysis", desc: "ResNet-50 runs inference and returns class probabilities with calibrated confidence." },
+              { num: "03", icon: "◈", title: "Review Grad-CAM & Prediction", desc: "Inspect the heat-mapped regions the network used to make its decision." },
+              { num: "04", icon: "▤", title: "Generate & Export Clinical Draft", desc: "Generate a Gemini-drafted pathology report and export a polished PDF case file." },
+            ].map(f => (
+              <div key={f.title} style={{ position: "relative" }}>
+                <div style={{ position: "relative", width: 64, height: 64, marginBottom: 20 }}>
+                  <div style={{ width: 64, height: 64, borderRadius: 14, background: C.surface, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <span style={{ fontSize: 24, color: C.amber }}>{f.icon}</span>
+                  </div>
+                  <div style={{ position: "absolute", top: -8, right: -8, width: 22, height: 22, borderRadius: "50%", background: C.amber, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 9, fontWeight: 700, color: "#0a0a0b" }}>{f.num}</span>
+                  </div>
+                </div>
+                <p style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 700, fontSize: 14, color: C.text, marginBottom: 8 }}>{f.title}</p>
+                <p style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 300, fontSize: 12, color: C.textMuted, lineHeight: 1.7 }}>{f.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* EXPLAINABILITY SECTION */}
+      <section style={{ padding: "100px 48px", borderTop: `1px solid ${C.border}` }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 64, alignItems: "center" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 24 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.amber, display: "inline-block" }} />
+              <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 9, color: C.textMuted, letterSpacing: "0.2em", textTransform: "uppercase" }}>Explainability · 03</span>
+            </div>
+            <h2 style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 800, fontSize: "clamp(26px, 3.5vw, 44px)", color: C.text, letterSpacing: "-0.02em", lineHeight: 1.1, marginBottom: 20 }}>
+              See what the model{" "}
+              <span style={{ color: C.amber, fontFamily: "'DM Serif Display', serif", fontStyle: "italic", fontWeight: 400 }}>actually sees.</span>
+            </h2>
+            <p style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 300, fontSize: 14, color: C.textDim, lineHeight: 1.8, marginBottom: 32 }}>
+              Every prediction is paired with a Grad-CAM activation map — a transparent view of the dermoscopy regions that drove the network's reasoning. No opaque scores, no black-box conclusions.
+            </p>
+            {["Pixel-level activation maps overlaid on dermoscopy", "Calibrated class probabilities across 7 lesion types", "Side-by-side raw vs. attended view for review", "Exportable visual evidence with every case"].map(item => (
+              <div key={item} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                <span style={{ width: 16, height: 16, borderRadius: "50%", border: `1px solid ${C.amber}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <span style={{ fontSize: 8, color: C.amber }}>✓</span>
+                </span>
+                <span style={{ fontFamily: "'Outfit', sans-serif", fontSize: 13, color: C.textDim }}>{item}</span>
+              </div>
+            ))}
+            <div style={{ display: "flex", gap: 12, marginTop: 36 }}>
+              <button onClick={() => user ? setPage("ingestion") : setPage("auth")} style={{ display: "flex", alignItems: "center", gap: 8, background: C.amber, border: "none", borderRadius: 28, padding: "12px 24px", fontFamily: "'Outfit', sans-serif", fontWeight: 700, fontSize: 13, color: "#0a0a0b", cursor: "pointer" }}>
+                Try it live →
+              </button>
+              <button onClick={() => setPage("terminal")} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", border: `1px solid ${C.border}`, borderRadius: 28, padding: "12px 24px", fontFamily: "'Outfit', sans-serif", fontWeight: 500, fontSize: 13, color: C.textDim, cursor: "pointer" }}>
+                See the pipeline
+              </button>
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={{ borderRadius: 14, background: "#1a1008", height: 220, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${C.border}` }}>
+              <div style={{ width: 100, height: 100, borderRadius: "50%", background: "radial-gradient(circle, #2a1a0a 0%, #0f0905 70%)", boxShadow: "0 0 30px rgba(100,50,10,0.4)" }} />
+            </div>
+            <div style={{ borderRadius: 14, background: "#0a0a08", height: 220, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${C.border}` }}>
+              <div style={{ width: 100, height: 100, borderRadius: "50%", background: "radial-gradient(circle, rgba(245,158,11,0.6) 0%, rgba(245,80,11,0.3) 40%, transparent 70%)" }} />
+            </div>
+            <div style={{ gridColumn: "1 / -1", border: `1px solid ${C.border}`, borderRadius: 14, padding: 16, background: C.surface }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
+                <div>
+                  <p style={{ fontFamily: "'Space Mono', monospace", fontSize: 8, color: C.textMuted, marginBottom: 4 }}>TOP PREDICTION</p>
+                  <p style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 700, fontSize: 18, color: C.text }}>Melanocytic Nevus</p>
+                  <p style={{ fontFamily: "'Space Mono', monospace", fontSize: 8, color: C.textMuted }}>ICD-0 · 8720/0 · benign</p>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <span style={{ padding: "4px 10px", borderRadius: 20, border: `1px solid ${C.amber}40`, color: C.amber, fontFamily: "'Space Mono', monospace", fontSize: 8 }}>Confidence · 92.4%</span>
+                  <span style={{ padding: "4px 10px", borderRadius: 20, border: `1px solid ${C.safe}40`, color: C.safe, fontFamily: "'Space Mono', monospace", fontSize: 8 }}>Low Risk</span>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 4 }}>
+                {[["MEL",0.08],["BCC",0.02],["BKL",0.05],["NV",0.92],["AKIEC",0.01],["DF",0.01],["VASC",0.00]].map(([label, val]) => (
+                  <div key={label as string} style={{ flex: 1, textAlign: "center" }}>
+                    <div style={{ height: 32, background: C.border, borderRadius: 3, overflow: "hidden", marginBottom: 4, position: "relative" }}>
+                      <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: label === "NV" ? C.amber : C.amberDim, height: `${(val as number) * 100}%`, borderRadius: 3 }} />
+                    </div>
+                    <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 7, color: C.textMuted }}>{label as string}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* CTA SECTION */}
+      <section style={{ padding: "100px 48px", borderTop: `1px solid ${C.border}`, textAlign: "center" }}>
+        <div style={{ maxWidth: 700, margin: "0 auto" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 24 }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.amber, display: "inline-block" }} />
+            <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 9, color: C.textMuted, letterSpacing: "0.2em", textTransform: "uppercase" }}>Get Started · 05</span>
+          </div>
+          <h2 style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 800, fontSize: "clamp(28px, 4vw, 52px)", color: C.text, letterSpacing: "-0.02em", lineHeight: 1.1, marginBottom: 20 }}>
+            Explore the future of{" "}
+            <span style={{ color: C.amber, fontFamily: "'DM Serif Display', serif", fontStyle: "italic", fontWeight: 400 }}>explainable dermatology AI.</span>
+          </h2>
+          <p style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 300, fontSize: 15, color: C.textDim, lineHeight: 1.8, marginBottom: 40 }}>
+            Try the platform, explore AI-assisted dermoscopy workflows, and see how explainability transforms the way research teams reason about skin lesion intelligence.
+          </p>
+          <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+            <button onClick={() => user ? setPage("ingestion") : setPage("auth")} style={{ display: "flex", alignItems: "center", gap: 8, background: C.amber, border: "none", borderRadius: 28, padding: "14px 32px", fontFamily: "'Outfit', sans-serif", fontWeight: 700, fontSize: 15, color: "#0a0a0b", cursor: "pointer" }}>
+              Launch GRADIA.AI →
+            </button>
+            <button style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", border: `1px solid ${C.border}`, borderRadius: 28, padding: "14px 32px", fontFamily: "'Outfit', sans-serif", fontWeight: 500, fontSize: 15, color: C.textDim, cursor: "pointer" }}>
+              Explore Features
+            </button>
+          </div>
+          <div style={{ marginTop: 40, display: "flex", gap: 6, alignItems: "center", justifyContent: "center", flexWrap: "wrap" }}>
+            {["v1.0", "RESEARCH BUILD", "HAM10000 · 7 CLASSES", "NOT FOR CLINICAL USE"].map((item, i) => (
+              <React.Fragment key={item}>
+                {i > 0 && <span style={{ color: C.border, fontSize: 10 }}>•</span>}
+                <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 9, color: C.textMuted, letterSpacing: "0.1em", textTransform: "uppercase" }}>{item}</span>
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <Footer page={page} caseId={selectedCase?.case_id} />
       <GS />
     </div>
   );
 
-  //  AUTH 
+
+  // ── AUTH ───────────────────────────────────────────────────────────────
   if (page === "auth") return (
     <div style={{ minHeight: "100vh", background: C.bg, color: C.text }}>
       <Nav />
@@ -479,7 +750,7 @@ export default function App() {
     </div>
   );
 
-  //  INGESTION 
+  // ── INGESTION ──────────────────────────────────────────────────────────
   if (page === "ingestion") return (
     <div style={{ minHeight: "100vh", background: C.bg, color: C.text, overflowY: "auto" }}>
       <Nav />
@@ -561,7 +832,7 @@ export default function App() {
     </div>
   );
 
-  //  TERMINAL 
+  // ── TERMINAL ───────────────────────────────────────────────────────────
   return (
     <div style={{ minHeight: "100vh", background: C.bg, color: C.text, display: "flex", flexDirection: "column" }}>
       <Nav />
@@ -646,7 +917,7 @@ export default function App() {
             <p style={{ fontFamily: "'Space Mono', monospace", fontSize: 10, color: C.amber, textTransform: "uppercase", letterSpacing: "0.15em", marginBottom: 4 }}>Pathology Reporter</p>
             <p style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 300, fontSize: 11, color: C.textMuted }}>AI-generated diagnostic documentation</p>
           </div>
-          <div style={{ flex: 1, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, overflowY: "auto", fontSize: 11, lineHeight: 1.7, position: "relative" }}>
+          <div style={{ flex: 1, minHeight: 0, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, overflowY: "auto", fontSize: 11, lineHeight: 1.7, position: "relative" }}>
             {isGenerating && (
               <div style={{ position: "absolute", inset: 0, background: `${C.bg}f2`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, borderRadius: 10 }}>
                 <div style={{ width: 26, height: 26, border: `2px solid ${C.border}`, borderTopColor: C.amber, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />

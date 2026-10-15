@@ -8,7 +8,7 @@ import {
   type User
 } from "firebase/auth";
 import { auth, provider } from "../firebase";
-import { authApi, casesApi, TokenStore, type CaseRecord } from "./gradiaApi";
+import { casesApi, TokenStore, type CaseRecord } from "./gradiaApi";
 
 // ── useAuth ────────────────────────────────────────────────────────────────
 // Replaces all mock setUser() calls in the prototype
