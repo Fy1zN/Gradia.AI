@@ -15,3 +15,12 @@ gradia-frontend/dist/
 # General
 .DS_Store
 *.log
+
+# Python generated files
+**/__pycache__/
+*.py[cod]
+
+# Environment files
+.env
+.env.*
+!.env.example

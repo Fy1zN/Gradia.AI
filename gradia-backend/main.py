@@ -1,7 +1,4 @@
-"""
-GRADIA.AI — Production FastAPI Backend
-Stack: FastAPI + Supabase (PostgreSQL) + Firebase Auth + Cloudflare R2 + Gemini API
-"""
+
 
 import os
 import uuid
@@ -30,11 +27,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-#Environment config
+#  Environment config 
 
 DATABASE_URL         = os.getenv("DATABASE_URL")
 GEMINI_API_KEY       = os.getenv("GEMINI_API_KEY")
-GEMINI_URL           = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 FRONTEND_URL         = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 R2_ENDPOINT_URL      = os.getenv("R2_ENDPOINT_URL")
@@ -48,12 +45,12 @@ FIREBASE_SA_PATH     = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH", "firebase-serv
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-# Firebase initialization
+#  Firebase init
 
 cred = credentials.Certificate(FIREBASE_SA_PATH)
 firebase_admin.initialize_app(cred)
 
-# DB setup
+# Database setup
 
 engine       = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -95,7 +92,7 @@ class PatientCase(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# Cloudflare R2 client 
+#  Cloudflare R2 client 
 
 r2_client = boto3.client(
     "s3",
@@ -132,12 +129,11 @@ def get_file_bytes_from_path(file_path: str) -> bytes:
         filename = file_path.replace("/static/", "")
         return (UPLOAD_DIR / filename).read_bytes()
     else:
-        # Extract key from public URL
         key = "/".join(file_path.split("/")[3:])
         obj = r2_client.get_object(Bucket=R2_BUCKET_NAME, Key=key)
         return obj["Body"].read()
 
-# Auth utilities 
+#  Auth utilities 
 
 bearer = HTTPBearer()
 
@@ -172,7 +168,7 @@ def get_current_clinician(
 
     return clinician
 
-# Pydantic schemas 
+# ── Pydantic schemas ───────────────────────────────────────────────────────
 
 class ClinicianResponse(BaseModel):
     clinician_id: str
@@ -210,7 +206,7 @@ class CaseListResponse(BaseModel):
     page:      int
     page_size: int
 
-#  Inference engine
+# ── Inference engine ───────────────────────────────────────────────────────
 
 _inference_engine = None
 
@@ -221,7 +217,7 @@ def get_inference_engine():
         _inference_engine = GradiaInference()
     return _inference_engine
 
-# Severity classifier
+# ── Severity classifier ────────────────────────────────────────────────────
 
 HAM_HIGH_RISK     = {"MEL", "BCC", "SCC", "AKIEC"}
 HAM_MODERATE_RISK = {"BKL", "DF"}
@@ -234,7 +230,7 @@ def classify_severity(predicted_class: str, confidence: float) -> str:
         return "Low Risk"
     return "Benign / Safe"
 
-#  FastAPI app 
+# ── FastAPI app ────────────────────────────────────────────────────────────
 
 app = FastAPI(
     title="GRADIA.AI API",
@@ -252,7 +248,7 @@ app.add_middleware(
 
 app.mount("/static", StaticFiles(directory="uploads"), name="static")
 
-#  Health check 
+# ── Health check ───────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health():
@@ -263,7 +259,17 @@ def health():
         "model":   "ResNet-50 HAM10000"
     }
 
-#  Auth routes 
+# ── Test Gemini models ─────────────────────────────────────────────────────
+
+@app.get("/test-gemini")
+async def test_gemini():
+    async with httpx.AsyncClient() as client:
+        r = await client.get(
+            f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
+        )
+        return r.json()
+
+# ── Auth routes ────────────────────────────────────────────────────────────
 
 @app.get("/auth/me", response_model=ClinicianResponse)
 def get_me(clinician: Clinician = Depends(get_current_clinician)):
@@ -287,7 +293,7 @@ def update_profile(
     db.refresh(clinician)
     return {"message": "Profile updated", "name": clinician.name}
 
-#  Case routes 
+# ── Case routes ────────────────────────────────────────────────────────────
 
 @app.get("/api/cases", response_model=CaseListResponse)
 def get_cases(
@@ -393,7 +399,7 @@ def delete_case(
     db.commit()
     return
 
-#  Gemini pathology report 
+# ── Gemini pathology report ────────────────────────────────────────────────
 
 @app.post("/api/cases/{case_id}/report")
 async def generate_report(
@@ -471,6 +477,7 @@ Provide detailed structured sections for:
                 yield f"Error: Gemini API returned {response.status_code}"
                 return
             data = response.json()
+            print("[GRADIA] Gemini response keys:", list(data.keys()))
             text = data.get("candidates", [{}])[0] \
                        .get("content", {}) \
                        .get("parts", [{}])[0] \
