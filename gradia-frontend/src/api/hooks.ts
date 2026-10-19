@@ -8,7 +8,7 @@ import {
   type User
 } from "firebase/auth";
 import { auth, provider } from "../firebase";
-import { casesApi, TokenStore, type CaseRecord } from "./gradiaApi";
+import { casesApi, type CaseRecord } from "./gradiaApi";
 
 // ── useAuth ────────────────────────────────────────────────────────────────
 // Replaces all mock setUser() calls in the prototype
@@ -19,15 +19,9 @@ export function useAuth() {
   const [authError, setError]     = useState<string | null>(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        const token = await firebaseUser.getIdToken();
-        TokenStore.set(token);
-        setUser(firebaseUser);
-      } else {
-        TokenStore.clear();
-        setUser(null);
-      }
+    // Tokens are fetched fresh per request in gradiaApi.ts, so we only track the user here
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
       setLoading(false);
     });
     return unsubscribe;
@@ -77,7 +71,6 @@ export function useAuth() {
 
   const logout = useCallback(async () => {
     await signOut(auth);
-    TokenStore.clear();
     setUser(null);
   }, []);
 
@@ -107,7 +100,8 @@ export function useCases() {
     }
   }, []);
 
-  useEffect(() => { fetchCases(); }, [fetchCases]);
+  // No auto-fetch on mount: App.tsx fetches only when the user is logged in
+  // and on the terminal page (avoids an unauthenticated 403 on page load).
 
   return { cases, total, casesLoading, casesError, fetchCases };
 }

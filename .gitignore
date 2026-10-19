@@ -1,26 +1,25 @@
-# Backend
-gradia-backend/.env
-gradia-backend/firebase-service-account.json
-gradia-backend/venv/
-gradia-backend/__pycache__/
-gradia-backend/*.pyc
-gradia-backend/uploads/
-gradia-backend/weights/
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
 
-# Frontend
-gradia-frontend/node_modules/
-gradia-frontend/.env
-gradia-frontend/dist/
-
-# General
-.DS_Store
-*.log
-
-# Python generated files
-**/__pycache__/
-*.py[cod]
-
-# Environment files
+# Secrets
 .env
 .env.*
 !.env.example
+gradia-backend/firebase-service-account.json
+
+# Model + runtime files
+gradia-backend/weights/
+gradia-backend/uploads/
+*.pth
+
+# Frontend
+node_modules/
+dist/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log

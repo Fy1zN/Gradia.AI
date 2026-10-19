@@ -1,10 +1,15 @@
-
+"""
+GRADIA.AI — Production FastAPI Backend
+Stack: FastAPI + Supabase (PostgreSQL) + Firebase Auth + Cloudflare R2 + Gemini API
+"""
 
 import os
 import uuid
 import boto3
 import httpx
+import io
 import base64
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Optional, List
 from pathlib import Path
@@ -15,8 +20,10 @@ from firebase_admin import auth, credentials
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import StreamingResponse
+from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.concurrency import run_in_threadpool
+from PIL import Image, UnidentifiedImageError
 
 from sqlalchemy import create_engine, Column, String, Integer, Float, Text, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
@@ -27,12 +34,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-#  Environment config 
+#Environment config
 
 DATABASE_URL         = os.getenv("DATABASE_URL")
 GEMINI_API_KEY       = os.getenv("GEMINI_API_KEY")
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+# gemini-2.0-flash was shut down by Google on June 1, 2026 -> configurable model name
+GEMINI_MODEL         = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+GEMINI_URL           = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 FRONTEND_URL         = os.getenv("FRONTEND_URL", "http://localhost:5173")
+BACKEND_URL          = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
 
 R2_ENDPOINT_URL      = os.getenv("R2_ENDPOINT_URL")
 R2_ACCESS_KEY_ID     = os.getenv("R2_ACCESS_KEY_ID")
@@ -42,15 +52,20 @@ R2_PUBLIC_URL        = os.getenv("R2_PUBLIC_URL")
 
 FIREBASE_SA_PATH     = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH", "firebase-service-account.json")
 
-UPLOAD_DIR = Path("uploads")
+BASE_DIR   = Path(__file__).resolve().parent
+UPLOAD_DIR = BASE_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-#  Firebase init
+# Upload validation
+ALLOWED_IMAGE_TYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+MAX_UPLOAD_BYTES    = 10 * 1024 * 1024   # 10 MB
+
+# Firebase initialization
 
 cred = credentials.Certificate(FIREBASE_SA_PATH)
 firebase_admin.initialize_app(cred)
 
-# Database setup
+# DB setup
 
 engine       = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -92,7 +107,7 @@ class PatientCase(Base):
 
 Base.metadata.create_all(bind=engine)
 
-#  Cloudflare R2 client 
+# Cloudflare R2 client 
 
 r2_client = boto3.client(
     "s3",
@@ -121,19 +136,47 @@ def save_locally(file_bytes: bytes, filename: str) -> str:
     safe_name = filename.replace("/", "_")
     path = UPLOAD_DIR / safe_name
     path.write_bytes(file_bytes)
-    return f"/static/{safe_name}"
+    # Absolute URL: a relative "/static/..." would be resolved against the FRONTEND origin
+    return f"{BACKEND_URL}/static/{safe_name}"
+
+
+def _local_filename(file_path: str) -> Optional[str]:
+    """Returns the uploads/ filename if this path points to local storage, else None."""
+    if file_path.startswith("/static/"):
+        return file_path[len("/static/"):]
+    if file_path.startswith(f"{BACKEND_URL}/static/"):
+        return file_path[len(f"{BACKEND_URL}/static/"):]
+    return None
+
+
+def _r2_key(file_path: str) -> str:
+    if R2_PUBLIC_URL and file_path.startswith(R2_PUBLIC_URL):
+        return file_path[len(R2_PUBLIC_URL):].lstrip("/")
+    return "/".join(file_path.split("/")[3:])
 
 
 def get_file_bytes_from_path(file_path: str) -> bytes:
-    if file_path.startswith("/static/"):
-        filename = file_path.replace("/static/", "")
-        return (UPLOAD_DIR / filename).read_bytes()
-    else:
-        key = "/".join(file_path.split("/")[3:])
-        obj = r2_client.get_object(Bucket=R2_BUCKET_NAME, Key=key)
-        return obj["Body"].read()
+    local = _local_filename(file_path)
+    if local:
+        return (UPLOAD_DIR / local).read_bytes()
+    obj = r2_client.get_object(Bucket=R2_BUCKET_NAME, Key=_r2_key(file_path))
+    return obj["Body"].read()
 
-#  Auth utilities 
+
+def delete_stored_file(file_path: Optional[str]) -> None:
+    """Best-effort delete from R2 or local uploads/. Never raises."""
+    if not file_path:
+        return
+    try:
+        local = _local_filename(file_path)
+        if local:
+            (UPLOAD_DIR / local).unlink(missing_ok=True)
+        else:
+            r2_client.delete_object(Bucket=R2_BUCKET_NAME, Key=_r2_key(file_path))
+    except Exception as e:
+        print(f"[GRADIA] Could not delete stored file {file_path}: {e}")
+
+# Auth utilities 
 
 bearer = HTTPBearer()
 
@@ -168,7 +211,7 @@ def get_current_clinician(
 
     return clinician
 
-# ── Pydantic schemas ───────────────────────────────────────────────────────
+# Pydantic schemas 
 
 class ClinicianResponse(BaseModel):
     clinician_id: str
@@ -206,7 +249,7 @@ class CaseListResponse(BaseModel):
     page:      int
     page_size: int
 
-# ── Inference engine ───────────────────────────────────────────────────────
+#  Inference engine
 
 _inference_engine = None
 
@@ -217,22 +260,31 @@ def get_inference_engine():
         _inference_engine = GradiaInference()
     return _inference_engine
 
-# ── Severity classifier ────────────────────────────────────────────────────
+# Severity classifier
 
-HAM_HIGH_RISK     = {"MEL", "BCC", "SCC", "AKIEC"}
-HAM_MODERATE_RISK = {"BKL", "DF"}
+HAM_HIGH_RISK = {"MEL", "BCC", "SCC", "AKIEC"}
+HAM_LOW_RISK  = {"BKL", "DF"}
 
 def classify_severity(predicted_class: str, confidence: float) -> str:
     code = predicted_class.split("(")[-1].replace(")", "").strip().upper()
     if code in HAM_HIGH_RISK:
         return "High Risk" if confidence > 70 else "Moderate Risk"
-    if code in HAM_MODERATE_RISK:
+    if code in HAM_LOW_RISK:
         return "Low Risk"
     return "Benign / Safe"
 
-# ── FastAPI app ────────────────────────────────────────────────────────────
+#  FastAPI app 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Load the model once at startup: a missing/corrupt checkpoint fails NOW,
+    # not silently on the first user's upload.
+    get_inference_engine()
+    yield
+
 
 app = FastAPI(
+    lifespan=lifespan,
     title="GRADIA.AI API",
     version="1.0.0",
     description="Production backend for GRADIA.AI — Explainable AI Dermascope Terminal"
@@ -246,9 +298,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/static", StaticFiles(directory="uploads"), name="static")
+app.mount("/static", StaticFiles(directory=UPLOAD_DIR), name="static")
 
-# ── Health check ───────────────────────────────────────────────────────────
+#  Health check 
 
 @app.get("/health")
 def health():
@@ -256,20 +308,11 @@ def health():
         "status":  "online",
         "project": "GRADIA.AI",
         "version": "1.0.0",
-        "model":   "ResNet-50 HAM10000"
+        "model":   "ResNet-50 HAM10000",
+        "trained_weights_loaded": bool(_inference_engine and _inference_engine.weights_loaded),
     }
 
-# ── Test Gemini models ─────────────────────────────────────────────────────
-
-@app.get("/test-gemini")
-async def test_gemini():
-    async with httpx.AsyncClient() as client:
-        r = await client.get(
-            f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
-        )
-        return r.json()
-
-# ── Auth routes ────────────────────────────────────────────────────────────
+#  Auth routes 
 
 @app.get("/auth/me", response_model=ClinicianResponse)
 def get_me(clinician: Clinician = Depends(get_current_clinician)):
@@ -293,7 +336,7 @@ def update_profile(
     db.refresh(clinician)
     return {"message": "Profile updated", "name": clinician.name}
 
-# ── Case routes ────────────────────────────────────────────────────────────
+#  Case routes 
 
 @app.get("/api/cases", response_model=CaseListResponse)
 def get_cases(
@@ -345,23 +388,44 @@ async def upload_case(
     db:             Session       = Depends(get_db),
     clinician:      Clinician     = Depends(get_current_clinician)
 ):
+    # 1. Validate the upload before doing any work
+    content_type = (image.content_type or "").lower()
+    if content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG or WebP images are allowed")
+
     image_bytes = await image.read()
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    if len(image_bytes) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Image too large (max 10 MB)")
+    try:
+        Image.open(io.BytesIO(image_bytes)).verify()   # checks it is a real, readable image
+    except (UnidentifiedImageError, OSError, SyntaxError):
+        raise HTTPException(status_code=400, detail="File is not a valid image")
+
+    if not (0 <= age <= 120):
+        raise HTTPException(status_code=400, detail="Age must be between 0 and 120")
+
+    # 2. Run inference FIRST (in a worker thread, so the event loop is not blocked).
+    #    If it fails, nothing has been stored yet.
+    engine = get_inference_engine()
+    try:
+        prediction, heatmap_png = await run_in_threadpool(engine.analyze, image_bytes)
+    except Exception as e:
+        print(f"[GRADIA] Inference failed: {e}")
+        raise HTTPException(status_code=422, detail="Could not analyze this image")
 
     case_id   = f"GR-{uuid.uuid4().hex[:6].upper()}"
     lesion_id = f"GRD_{uuid.uuid4().hex[:10].upper()}"
 
-    img_key   = f"cases/{case_id}/original.jpg"
-    image_url = upload_to_r2(image_bytes, img_key, image.content_type or "image/jpeg")
-
-    engine      = get_inference_engine()
-    prediction  = engine.predict(image_bytes)
-    heatmap_png = engine.generate_gradcam_png(image_bytes, prediction["class_idx"])
-
-    hm_key      = f"cases/{case_id}/heatmap.png"
-    heatmap_url = upload_to_r2(heatmap_png, hm_key, "image/png")
+    # 3. Store original + heatmap
+    ext         = ALLOWED_IMAGE_TYPES[content_type]
+    image_url   = upload_to_r2(image_bytes, f"cases/{case_id}/original.{ext}", content_type)
+    heatmap_url = upload_to_r2(heatmap_png, f"cases/{case_id}/heatmap.png", "image/png")
 
     severity = classify_severity(prediction["predicted_class"], prediction["confidence"])
 
+    # 4. Save to DB; if that fails, roll back and remove the files we just stored
     case = PatientCase(
         case_id=case_id,
         lesion_id=lesion_id,
@@ -377,9 +441,16 @@ async def upload_case(
         severity=severity,
         description=prediction.get("description", "")
     )
-    db.add(case)
-    db.commit()
-    db.refresh(case)
+    try:
+        db.add(case)
+        db.commit()
+        db.refresh(case)
+    except Exception as e:
+        db.rollback()
+        delete_stored_file(image_url)
+        delete_stored_file(heatmap_url)
+        print(f"[GRADIA] DB save failed: {e}")
+        raise HTTPException(status_code=500, detail="Could not save case")
     return case
 
 
@@ -395,11 +466,15 @@ def delete_case(
     ).first()
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
+    image_path, heatmap_path = case.image_path, case.heatmap_path
     db.delete(case)
     db.commit()
+    # Only delete files after the DB delete succeeded
+    delete_stored_file(image_path)
+    delete_stored_file(heatmap_path)
     return
 
-# ── Gemini pathology report ────────────────────────────────────────────────
+#  Gemini pathology report 
 
 @app.post("/api/cases/{case_id}/report")
 async def generate_report(
@@ -420,8 +495,11 @@ async def generate_report(
     try:
         img_bytes = get_file_bytes_from_path(case.image_path)
         img_b64   = base64.b64encode(img_bytes).decode("utf-8")
+        fmt       = (Image.open(io.BytesIO(img_bytes)).format or "JPEG").lower()
+        img_mime  = {"jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}.get(fmt, "image/jpeg")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load case image: {e}")
+        print(f"[GRADIA] Failed to load case image: {e}")
+        raise HTTPException(status_code=500, detail="Failed to load case image")
 
     system_prompt = (
         "You are a clinical AI agent and dermatopathology specialist operating within GRADIA.AI. "
@@ -441,7 +519,7 @@ Draft a complete Dermatological Pathology Report for the following case:
 **AI Classification:** {case.predicted_class}
 **Confidence Score:** {case.confidence_score:.1f}%
 **Severity Assessment:** {case.severity}
-**Clinical Notes:** {case.clinical_notes or 'None provided'}
+**Clinical Notes:** {redact_notes(case.clinical_notes)}
 **Morphological Summary:** {case.description}
 
 The attached image is the original dermoscopy photograph processed by the GRADIA.AI ResNet-50 classifier.
@@ -458,30 +536,51 @@ Provide detailed structured sections for:
     payload = {
         "contents": [{
             "parts": [
-                {"inline_data": {"mime_type": "image/jpeg", "data": img_b64}},
+                {"inline_data": {"mime_type": img_mime, "data": img_b64}},
                 {"text": user_prompt}
             ]
         }],
         "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 2048}
+        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 4096}
     }
 
-    async def stream_gemini():
+    # Call Gemini BEFORE responding, so failures return a real HTTP error status
+    # (the old version returned 200 with "Error: ..." as if it were the report).
+    try:
         async with httpx.AsyncClient(timeout=120) as client:
             response = await client.post(
-                f"{GEMINI_URL}?key={GEMINI_API_KEY}",
+                GEMINI_URL,
                 json=payload,
-                headers={"Content-Type": "application/json"}
+                # API key in a header, not the URL, so it does not end up in logs
+                headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY},
             )
-            if not response.is_success:
-                yield f"Error: Gemini API returned {response.status_code}"
-                return
-            data = response.json()
-            print("[GRADIA] Gemini response keys:", list(data.keys()))
-            text = data.get("candidates", [{}])[0] \
-                       .get("content", {}) \
-                       .get("parts", [{}])[0] \
-                       .get("text", "Report generation failed.")
-            yield text
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Report generation timed out. Please try again.")
+    except httpx.HTTPError as e:
+        print(f"[GRADIA] Gemini request error: {e}")
+        raise HTTPException(status_code=502, detail="Could not reach the report service")
 
-    return StreamingResponse(stream_gemini(), media_type="text/plain")
+    if response.status_code == 429:
+        raise HTTPException(status_code=429, detail="Report service is rate-limited. Try again in a minute.")
+    if not response.is_success:
+        print(f"[GRADIA] Gemini returned {response.status_code}: {response.text[:300]}")
+        raise HTTPException(status_code=502, detail=f"Report service error ({response.status_code})")
+
+    try:
+        parts = response.json()["candidates"][0]["content"]["parts"]
+        text  = "".join(p.get("text", "") for p in parts).strip()
+    except (KeyError, IndexError, ValueError):
+        text = ""
+    if not text:
+        raise HTTPException(status_code=502, detail="Report service returned an empty response")
+
+    return PlainTextResponse(text)
+
+
+def redact_notes(notes: Optional[str]) -> str:
+    """Strip patient-identifying fields (name, reference) before sending notes to a third-party API."""
+    if not notes:
+        return "None provided"
+    parts = [p.strip() for p in notes.split("|")]
+    kept  = [p for p in parts if not p.lower().startswith(("patient:", "ref:"))]
+    return " | ".join(kept) or "None provided"

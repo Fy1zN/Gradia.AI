@@ -4,7 +4,10 @@ ResNet-50 classifier + Grad-CAM for HAM10000 skin lesion analysis
 """
 
 import io
+import os
 import json
+import threading
+from pathlib import Path
 import numpy as np
 from typing import Dict, Any
 
@@ -16,44 +19,74 @@ from PIL import Image
 import cv2
 
 
-# HAM10000 class definitions
-HAM10000_CLASSES = {
-    0: {
-        "label": "Melanocytic Nevus (NV)",
-        "severity": "Benign / Safe",
-        "description": "Symmetric, uniformly pigmented melanocytic lesion with regular borders and no atypical streaks."
-    },
-    1: {
-        "label": "Melanoma (MEL)",
-        "severity": "High Risk",
-        "description": "Asymmetric border with irregular pigmentation and multi-chromatic dark zones indicating invasive malignant growth."
-    },
-    2: {
-        "label": "Basal Cell Carcinoma (BCC)",
-        "severity": "High Risk",
-        "description": "Pearly translucent nodule with telangiectasia and slight central ulceration pattern."
-    },
-    3: {
+# HAM10000 class definitions, keyed by diagnosis CODE (not by index).
+# The index -> code order MUST match the LabelEncoder used in TRAIN.ipynb.
+CLASS_INFO = {
+    "AKIEC": {
         "label": "Actinic Keratosis (AKIEC)",
         "severity": "Moderate Risk",
         "description": "Scaly erythematous plaque with surface hyperkeratosis. Precancerous with potential SCC progression."
     },
-    4: {
+    "BCC": {
+        "label": "Basal Cell Carcinoma (BCC)",
+        "severity": "High Risk",
+        "description": "Pearly translucent nodule with telangiectasia and slight central ulceration pattern."
+    },
+    "BKL": {
         "label": "Benign Keratosis (BKL)",
         "severity": "Benign / Safe",
         "description": "Well-demarcated stuck-on appearance with milia-like cysts and comedo-like openings."
     },
-    5: {
+    "DF": {
         "label": "Dermatofibroma (DF)",
         "severity": "Benign / Safe",
         "description": "Firm hyperpigmented papule with central white scar-like area and pseudopod-like projections."
     },
-    6: {
+    "MEL": {
+        "label": "Melanoma (MEL)",
+        "severity": "High Risk",
+        "description": "Asymmetric border with irregular pigmentation and multi-chromatic dark zones indicating invasive malignant growth."
+    },
+    "NV": {
+        "label": "Melanocytic Nevus (NV)",
+        "severity": "Benign / Safe",
+        "description": "Symmetric, uniformly pigmented melanocytic lesion with regular borders and no atypical streaks."
+    },
+    "VASC": {
         "label": "Vascular Lesion (VASC)",
         "severity": "Benign / Safe",
         "description": "Red-to-violet lacunae with well-defined borders and no pigment network, indicating vascular origin."
     },
 }
+
+# sklearn's LabelEncoder sorts classes alphabetically, so this is the order
+# the trained model uses: 0=AKIEC, 1=BCC, 2=BKL, 3=DF, 4=MEL, 5=NV, 6=VASC
+DEFAULT_CLASS_ORDER = ["AKIEC", "BCC", "BKL", "DF", "MEL", "NV", "VASC"]
+BASE_DIR = Path(__file__).resolve().parent
+CLASSES_PATH = BASE_DIR / "weights" / "classes.json"
+
+
+def _load_class_order(path: Path = CLASSES_PATH) -> list:
+    """Load the index->code order saved by TRAIN.ipynb (le.classes_).
+    Falls back to alphabetical order, which is what LabelEncoder produces."""
+    if os.path.exists(path):
+        with open(path) as f:
+            order = [c.upper() for c in json.load(f)]
+        print(f"[GRADIA] Loaded class order from {path}: {order}")
+    else:
+        order = DEFAULT_CLASS_ORDER
+        print(f"[GRADIA] {path} not found, using default LabelEncoder order: {order}")
+
+    # Fail loudly instead of silently mislabeling predictions
+    if sorted(order) != sorted(CLASS_INFO.keys()) or len(order) != 7:
+        raise ValueError(f"Class order {order} does not match expected HAM10000 classes")
+    return order
+
+
+CLASS_ORDER = _load_class_order()
+
+# index -> class info, built from the training order
+HAM10000_CLASSES = {i: CLASS_INFO[code] for i, code in enumerate(CLASS_ORDER)}
 
 # ImageNet normalization stats
 PREPROCESS = transforms.Compose([
@@ -87,28 +120,40 @@ class GradiaInference:
     and computes Grad-CAM heatmaps for explainability.
     """
 
-    WEIGHTS_PATH = "weights/resnet50_ham10000.pth"
+    # Absolute path, so it works no matter which folder uvicorn is started from
+    WEIGHTS_PATH = BASE_DIR / "weights" / "resnet50_ham10000.pth"
 
     def __init__(self, weights_path: str = None, device: str = None):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = self._load_model(weights_path or self.WEIGHTS_PATH)
+        self.weights_loaded = False
+        self.model = self._load_model(Path(weights_path) if weights_path else self.WEIGHTS_PATH)
         self.hooks = GradCAMHooks()
         self._register_hooks()
+        # Grad-CAM stores activations/gradients on shared hook state, so two requests
+        # running at the same time could mix up each other's results. One at a time.
+        self._lock = threading.Lock()
 
-    def _load_model(self, weights_path: str) -> nn.Module:
-        import os
+    def _load_model(self, weights_path: Path) -> nn.Module:
         model = models.resnet50(weights=None)
         model.fc = nn.Linear(model.fc.in_features, 7)
 
-        if os.path.exists(weights_path):
+        if weights_path.exists():
             state_dict = torch.load(weights_path, map_location=self.device)
             model.load_state_dict(state_dict)
+            self.weights_loaded = True
             print(f"[GRADIA] Loaded weights from {weights_path}")
-        else:
-            # Development fallback — ImageNet backbone, random head
-            print(f"[GRADIA] No HAM10000 weights found at {weights_path}. Using ImageNet pretrained backbone.")
+        elif os.getenv("ALLOW_UNTRAINED_MODEL") == "1":
+            # Explicit opt-in only: ImageNet backbone + RANDOM head = meaningless predictions
+            print(f"[GRADIA] WARNING: no weights at {weights_path}. "
+                  f"ALLOW_UNTRAINED_MODEL=1, so using an UNTRAINED head. Predictions are NOT valid.")
             model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V2)
             model.fc = nn.Linear(model.fc.in_features, 7)
+        else:
+            # Fail loudly instead of silently serving random predictions
+            raise FileNotFoundError(
+                f"Model weights not found at {weights_path}. "
+                f"Place resnet50_ham10000.pth there (or set ALLOW_UNTRAINED_MODEL=1 for UI-only testing)."
+            )
 
         model.to(self.device)
         model.eval()
@@ -135,6 +180,7 @@ class GradiaInference:
 
         return {
             "class_idx": class_idx,
+            "class_code": CLASS_ORDER[class_idx],
             "predicted_class": class_info["label"],
             "confidence": confidence,
             "severity": class_info["severity"],
@@ -167,17 +213,20 @@ class GradiaInference:
         target_score = logits[0, class_idx]
         target_score.backward()
 
-        activations = self.hooks.activations[0]   # (C, H, W)
+        if self.hooks.activations is None or self.hooks.gradients is None:
+            raise RuntimeError("Grad-CAM hooks did not capture activations/gradients")
+
+        activations = self.hooks.activations[0]   # (C, H, W) = (2048, 7, 7)
         gradients = self.hooks.gradients[0]        # (C, H, W)
 
-        weights = gradients.mean(dim=[1, 2])       # (C,)
+        weights = gradients.mean(dim=[1, 2])       # (C,)  one importance weight per channel
 
-        cam = torch.zeros(activations.shape[1:], device=self.device)
-        for i, w in enumerate(weights):
-            cam += w * activations[i]
+        # Weighted sum of the 2048 feature maps -> one 7x7 map
+        cam = (weights[:, None, None] * activations).sum(dim=0)
 
         cam = F.relu(cam)
-        cam_np = cam.cpu().numpy()
+        cam_np = cam.detach().cpu().numpy()
+        self.model.zero_grad()
 
         cam_min, cam_max = cam_np.min(), cam_np.max()
         if cam_max - cam_min > 1e-8:
@@ -187,10 +236,29 @@ class GradiaInference:
 
         return cam_np.astype(np.float32)
 
+    @staticmethod
+    def _model_crop_box(w: int, h: int):
+        """
+        Where the 224x224 model input sits inside the ORIGINAL image.
+        Mirrors PREPROCESS: Resize(256) on the shorter side, then CenterCrop(224).
+        Returns (x0, y0, x1, y1) in original-image pixels.
+        """
+        if w <= h:
+            rw, rh = 256, int(256 * h / w)
+        else:
+            rw, rh = int(256 * w / h), 256
+        scale = 256 / min(w, h)
+        left = int(round((rw - 224) / 2.0))
+        top = int(round((rh - 224) / 2.0))
+        x0, y0 = int(round(left / scale)), int(round(top / scale))
+        size = int(round(224 / scale))
+        return x0, y0, min(w, x0 + size), min(h, y0 + size)
+
     def generate_gradcam_png(self, image_bytes: bytes, class_idx: int) -> bytes:
         """
-        Overlay Grad-CAM heatmap on the original image using JET colormap.
-        Returns PNG bytes ready for storage.
+        Overlay the Grad-CAM heatmap (JET colormap) on the original image.
+        The heatmap is placed ONLY over the center region the model actually saw,
+        and that region is outlined. Returns PNG bytes ready for storage.
         """
         heatmap = self.compute_gradcam(image_bytes, class_idx)
 
@@ -198,16 +266,27 @@ class GradiaInference:
         orig_w, orig_h = original.size
         orig_np = np.array(original)
 
-        heatmap_resized = cv2.resize(heatmap, (orig_w, orig_h))
+        x0, y0, x1, y1 = self._model_crop_box(orig_w, orig_h)
+
+        heatmap_resized = cv2.resize(heatmap, (x1 - x0, y1 - y0))
         heatmap_uint8 = (heatmap_resized * 255).astype(np.uint8)
         heatmap_color = cv2.applyColorMap(heatmap_uint8, cv2.COLORMAP_JET)
         heatmap_rgb = cv2.cvtColor(heatmap_color, cv2.COLOR_BGR2RGB)
 
-        blended = cv2.addWeighted(orig_np, 0.5, heatmap_rgb, 0.5, 0)
+        blended = orig_np.copy()
+        blended[y0:y1, x0:x1] = cv2.addWeighted(orig_np[y0:y1, x0:x1], 0.5, heatmap_rgb, 0.5, 0)
+        cv2.rectangle(blended, (x0, y0), (x1 - 1, y1 - 1), (255, 255, 255), max(1, orig_w // 300))
 
         buf = io.BytesIO()
         Image.fromarray(blended).save(buf, format="PNG", optimize=True)
         return buf.getvalue()
+
+    def analyze(self, image_bytes: bytes):
+        """Thread-safe: prediction + Grad-CAM PNG in one locked call. Used by main.py."""
+        with self._lock:
+            prediction = self.predict(image_bytes)
+            heatmap_png = self.generate_gradcam_png(image_bytes, prediction["class_idx"])
+        return prediction, heatmap_png
 
     def generate_gradcam_matrix(self, image_bytes: bytes, class_idx: int) -> str:
         """
