@@ -1,5 +1,19 @@
 # GRADIA.AI
 
+<img src="https://img.shields.io/badge/GRADIA.AI-Dermoscopy%20Analysis-f59e0b?style=for-the-badge&logoColor=black" />
+<img src="https://img.shields.io/badge/ResNet--50-85.2%25%20Test%20Accuracy-f59e0b?style=for-the-badge&logo=pytorch&logoColor=white" />
+<img src="https://img.shields.io/badge/HAM10000-10%2C015%20Images-orange?style=for-the-badge" />
+<img src="https://img.shields.io/badge/FastAPI-Backend-009688?style=for-the-badge&logo=fastapi&logoColor=white" />
+<img src="https://img.shields.io/badge/React-Frontend-61DAFB?style=for-the-badge&logo=react&logoColor=black" />
+<img src="https://img.shields.io/badge/PyTorch-Inference-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" />
+<img src="https://img.shields.io/badge/Firebase-Auth-FFCA28?style=for-the-badge&logo=firebase&logoColor=black" />
+<img src="https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white" />
+<img src="https://img.shields.io/badge/Cloudflare-R2%20Storage-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" />
+<img src="https://img.shields.io/badge/Gemini-AI%20Reports-4285F4?style=for-the-badge&logo=google&logoColor=white" />
+<img src="https://img.shields.io/badge/Grad--CAM-Explainability-purple?style=for-the-badge" />
+<img src="https://img.shields.io/badge/PDF-Export-red?style=for-the-badge" />
+<img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" />
+
 AI-powered dermoscopy analysis platform. Upload a skin lesion image to classify it into one of the 7 HAM10000 lesion categories, see a Grad-CAM map of the regions that drove the prediction, and generate a Gemini-drafted pathology report.
 
 > **Research and educational platform only. Not intended for clinical diagnosis.**
